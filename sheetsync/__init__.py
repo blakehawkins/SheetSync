@@ -17,6 +17,8 @@ from version import __version__
 
 import logging
 import httplib2 # pip install httplib2
+import time
+import random
 from datetime import datetime
 import json
 
@@ -630,19 +632,28 @@ class Sheet(object):
         if self._batch_request:
             logger.info("_flush_writes: Writing %s cell writes",
                                         len(self._batch_request))
-            try:
-                self.worksheet.update_cells(self._batch_request)
-            except Exception, e:
-                logger.exception("gdata API error. %s", e)
-                raise e
 
-            # Now check the response code. 
-            #for entry in resp.entry:
-            #    if entry.batch_status.code != '200':
-            #        error = "gdata API error. %s - %s" % (entry.batch_status.code,
-            #                                entry.batch_status.reason)
-            #        logger.error("Batch update failed: %s", error)
-            #        raise Exception(error)
+            for i in xrange(0, 12):
+                try:
+                    self.worksheet.update_cells(self._batch_request)
+
+                    # If the update completed successfully, break out of the
+                    # backoff loop.
+                    break
+                except Exception, e:
+                    gdata_log.error("gdata API error. %s", e)
+
+                    if i <= 10:
+                        # Seed the backoff wait time with a random value -
+                        # probably unnecessary, but might fix collision issues
+                        # if running multiple sync instances.
+                        wait_duration = 2**i + random.random()
+                        logger.info("Error updating cells, re-trying after " +
+                                    "%s second backoff." % str(wait_duration))
+                        time.sleep(wait_duration)
+                    else:
+                        # Backoff failed after a long time, re-raise the error.
+                        raise e
 
             self._batch_request = []
 
